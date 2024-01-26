@@ -1,6 +1,6 @@
 const { tempdir } = window.__TAURI__.os;
 const { invoke } = window.__TAURI__.tauri;
-const { open } = window.__TAURI__.dialog;
+const { open, message } = window.__TAURI__.dialog;
 const { convertFileSrc } = window.__TAURI__.tauri;
 
 // home.html
@@ -9,6 +9,7 @@ let inputName;
 let inputRoom;
 let processBtn;
 let filePathsImage = []; // temporary store file paths
+let warning;
 
 function openFilefn() {
     return new Promise((resolve, reject) => {
@@ -17,7 +18,7 @@ function openFilefn() {
             title: "Open DICOM file",
             filters: [{
                 name: 'DICOM',
-                extensions: ["*"]
+                extensions: ["*", "dcm", "dicom"]
             }]
         }).then((filePaths) => {
             if (filePaths) {
@@ -33,6 +34,7 @@ async function readFile() {
     const filePaths = await openFilefn();
     if (filePaths) {
         filePathsImage = filePaths;
+        warning.innerHTML = "<i>ready to process</i>";
     } 
 };
 
@@ -51,8 +53,9 @@ async function processing() {
         // home -> index
         await invoke("home2processing");
         filePathsImage = []; // refresh filepaths
+        warning.innerHTML = "<i>please select some DICOM file</i>";
     } else {
-        alert("select some image");
+        await message("please select some DICOM file before processing", { title: 'Warning', type: 'warning'});
     }
 }
 
@@ -67,6 +70,7 @@ window.addEventListener("DOMContentLoaded", () => {
     inputName = document.querySelector("#inputname");
     inputRoom = document.querySelector("#inputroom");
     processBtn = document.querySelector("#processBtn");
+    warning = document.querySelector("#warning");
 
     // home.html
     openFile.addEventListener("click", (event) => {
