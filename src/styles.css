@@ -1,0 +1,318 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  min-width: 0;
+  font-family: sans-serif;
+  overflow: hidden;
+}
+
+:root {
+  --cb : #014aac;
+  --cy: #ffde59;
+  --cyh: rgb(255, 216, 62);
+  --cr: #e82626;
+  --fsm: 16px;
+  --fssm: 14px
+}
+
+.navhome {
+  background: var(--cb);
+}
+
+.navhome ul {
+  display: flex;
+  gap: 20px;
+  padding: 10px;
+}
+
+.navhome li {
+  list-style: none;
+}
+
+.navhome a {
+  color: white;
+  text-decoration: none;
+  font-size: var(--fssm);
+}
+
+.inputdetails {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px 40px;
+}
+
+.inputdetail {
+  font-size: var(--fsm);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.inputdetail input {
+  width: 40ch;
+  padding: 5px;
+  font-size: var(--fsm);
+  border: 1px solid black;
+  outline: none;
+}
+
+#processBtn {
+  padding: 5px 25px;
+  font-size: var(--fsm);
+  cursor: pointer;
+  border: none;
+  margin-top: 5px;
+  background: var(--cy);
+}
+
+#processBtn:hover {
+  background: var(--cyh);
+}
+
+/* index.html */
+#newFile {
+  border: none;
+  outline: none;
+  font-size: var(--fsm);
+  padding: 5px 20px;
+  margin: 20px 0 10px 15px;
+  cursor: pointer;
+  background: black;
+  color: white;
+}
+
+.tabsBar {
+  display: flex;
+  padding: 2px 5px;
+  margin-left: 10px;
+  margin-bottom: 10px;
+}
+
+.tabsBar button {
+  border: none;
+  outline: none;
+  font-size: var(--fsm);
+  padding: 5px 15px;
+  cursor: pointer;
+}
+
+.tabsBar button:hover:not(.activeBtn) {
+  background: #e2e5e8;
+}
+
+.activeBtn {
+  display: block;
+  background: var(--cb);
+  color: white;
+}
+
+
+.main-container {
+  background: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100vw;
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  margin-left: 10px;
+  width: 500px;
+}
+
+.mid {
+  padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.right {
+  padding: 10px 10px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.top-right {
+  padding: 10px 50px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.top-right button {
+  height: fit-content;
+  padding: 5px 15px;
+  border: none;
+  outline: none;
+  font-size: var(--fssm);
+  cursor: pointer;
+  background: var(--cy);
+}
+
+.top-right button:hover {
+  background: var(--cyh);
+}
+
+.container-compare {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: red;
+}
+
+.container-compare * {
+  overflow: visible !important;
+}
+
+
+.main-element {
+  display: none;
+}
+
+.load-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.loader {
+  height: 5px;
+  width: 5px;
+  color: var(--cr);
+  box-shadow: -10px -10px 0 5px,
+              -10px -10px 0 5px,
+              -10px -10px 0 5px,
+              -10px -10px 0 5px;
+  animation: loader-38 6s infinite;
+}
+
+@keyframes loader-38 {
+  0% {
+    box-shadow: -10px -10px 0 5px,
+                -10px -10px 0 5px,
+                -10px -10px 0 5px,
+                -10px -10px 0 5px;
+  }
+  8.33% {
+    box-shadow: -10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px -10px 0 5px;
+  }
+  16.66% {
+    box-shadow: -10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px 10px 0 5px,
+                10px 10px 0 5px;
+  }
+  24.99% {
+    box-shadow: -10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px 10px 0 5px,
+                -10px 10px 0 5px;
+  }
+  33.32% {
+    box-shadow: -10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px 10px 0 5px,
+                -10px -10px 0 5px;
+  }
+  41.65% {
+    box-shadow: 10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px 10px 0 5px,
+                10px -10px 0 5px;
+  }
+  49.98% {
+    box-shadow: 10px 10px 0 5px,
+              10px 10px 0 5px,
+              10px 10px 0 5px,
+              10px 10px 0 5px;
+  }
+  58.31% {
+    box-shadow: -10px 10px 0 5px,
+                -10px 10px 0 5px,
+                10px 10px 0 5px,
+                -10px 10px 0 5px;
+  }
+  66.64% {
+    box-shadow: -10px -10px 0 5px,
+                -10px -10px 0 5px,
+                10px 10px 0 5px,
+                -10px 10px 0 5px;
+  }
+  74.97% {
+    box-shadow: -10px -10px 0 5px,
+                10px -10px 0 5px,
+                10px 10px 0 5px,
+                -10px 10px 0 5px;
+  }
+  83.3% {
+    box-shadow: -10px -10px 0 5px,
+                10px 10px 0 5px,
+                10px 10px 0 5px,
+                -10px 10px 0 5px;
+  }
+  91.63% {
+    box-shadow: -10px -10px 0 5px,
+                -10px 10px 0 5px,
+                -10px 10px 0 5px,
+                -10px 10px 0 5px;
+  }
+  100% {
+    box-shadow: -10px -10px 0 5px,
+                -10px -10px 0 5px,
+                -10px -10px 0 5px,
+                -10px -10px 0 5px;
+  }
+}
+
+/* Apply styles to the table */
+table {
+  font-size: var(--fssm);
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 5px;
+}
+
+/* Style the table headers */
+th {
+  background-color: #f2f2f2;
+  color: #333;
+  font-weight: bold;
+  padding: 3px;
+  text-align: center;
+  border: 1px solid #ddd;
+}
+
+/* Style the table cells */
+td {
+  padding: 5px;
+  text-align: center;
+  border: 1px solid #ddd;
+}
+
+/* Alternate row background color for better readability */
+tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+/* Hover effect on rows */
+tr:hover {
+  background-color: #e0e0e0;
+}
