@@ -2,10 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use dicom::object::{FileDicomObject, InMemDicomObject, Tag};
 use dicom::{object::open_file, pixeldata::PixelDecoder};
-use dicom::dictionary_std::tags;
+use dicom::dictionary_std::tags::{self, TREATMENT_POSITION_GROUP_UID};
 use ndarray::{s, Array, ArrayBase, Axis, Dim, OwnedRepr};
 use dicom::pixeldata::image::GrayImage;
 use ndarray_stats::QuantileExt;
+use tauri::utils::config::parse::does_supported_file_name_exist;
 use tauri::Manager;
 use std::collections::HashMap;
 use std::fs;
@@ -21,6 +22,7 @@ type Obj = FileDicomObject<InMemDicomObject>;
 
 // constant
 const PI: f64 = 3.14159;
+const LIMITANGLE: f64 = 0.0393599;
 
 #[tauri::command]
 fn processing(file_path: String, save_path: String) -> (HashMap<String, Vec<f32>>, Vec<u128>, Vec<String>) {
@@ -36,40 +38,45 @@ fn processing(file_path: String, save_path: String) -> (HashMap<String, Vec<f32>
             let detector_type = get_detail(&obj, tags::DETECTOR_TYPE);
             let detector_id = get_detail(&obj, tags::DETECTOR_ID);
             let modality = get_detail(&obj, tags::MODALITY);
-            let machine = format!("{} [{}]", manufacturer, modality);
+            let mut machine = " - ".to_string();
+            if manufacturer != " - ".to_string() {
+                machine = format!("{} [{}]", manufacturer, modality);
+            } 
             let address = get_detail(&obj, tags::INSTITUTION_ADDRESS);
             let patient_id = get_detail(&obj, tags::PATIENT_ID);
             let spatial_resolution = get_detail(&obj, tags::SPATIAL_RESOLUTION);
-            let mut pixel_size = "".to_string();
-            if spatial_resolution != "".to_string() {
+            let mut pixel_size = " - ".to_string();
+            if spatial_resolution != " - ".to_string() {
                 pixel_size = format!("{}x{} mm", spatial_resolution, spatial_resolution);
             }
             let rows_ = get_detail(&obj, tags::ROWS);
             let cols_ = get_detail(&obj, tags::COLUMNS);
             let mut matrix_size = format!("");
-            if (rows_ != "".to_string()) && (cols_ != "".to_string()) {
+            if (rows_ != " - ".to_string()) && (cols_ != " - ".to_string()) {
                 matrix_size = format!("{}x{}", rows_, cols_);
             } 
             let bit_depth = get_detail(&obj, tags::BITS_STORED);
             let details = vec![hospital, machine, address, acquisition_date, detector_type, detector_id, patient_id, pixel_size, matrix_size, bit_depth];
             // find MTF bar
             let (arr, need_inv) = find_mtf_bar(arr);
-            // // done
-            // let arr: U16Array = arr.slice(s![crop[0]..crop[1], crop[2]..crop[3]]).to_owned();
 
             // // just in this case
             // let arr_rotated: ArrayBase<OwnedRepr<u16>, Dim<[usize; 2]>> = rotate_array(PI, arr);
-            // save_to_image(arr_rotated.clone(), save_path);
-            // let theta_r = find_theta(arr_rotated.clone());
-            // let arr = rotate_array(theta_r, arr_rotated);
-            // // focus one line to find linepairs position
-            // let (focus, linepairs, one_line) = linepairs_pos(arr);
-            // let res = calculate_details(focus, linepairs);
-            // return (res, one_line, details);
-            return (HashMap::new(), vec![], vec![]);
+            let mut theta_r = find_theta(arr.clone());
+            if theta_r > LIMITANGLE {
+                // wrong side then rotate 180deg back
+                let arr: ArrayBase<OwnedRepr<u16>, Dim<[usize; 2]>> = rotate_array(PI, arr.clone());
+                theta_r = find_theta(arr.clone());
+            }
+            // rotate for straight line
+            let arr = rotate_array(theta_r, arr);
+            // focus one line to find linepairs position
+            let (focus, linepairs, oneline, arr) = linepairs_pos(arr);
+            save_to_image(arr, save_path);
+            let res = calculate_details(focus, linepairs);
+            return (res, oneline, details);
         }, 
         None => {
-            println!("NOT FOUND!");
             return (HashMap::new(), vec![], vec![]);
         }
     }
@@ -180,9 +187,8 @@ fn find_mtf_bar(mut arr: U16Array) -> (U16Array, bool) {
             }
             arr_vec.push(row_vec);
         }
-        let arr_vec_rotated = rotate_matrix_cw(arr_vec);
+        let arr_vec_rotated = rotate_matrix_ccw(arr_vec);
         arr = Array::from_shape_vec((ncols, nrows), arr_vec_rotated.concat()).unwrap();
-        dbg!(arr.shape());
     }
     (arr, need_inv)
 }
@@ -190,10 +196,14 @@ fn find_mtf_bar(mut arr: U16Array) -> (U16Array, bool) {
 fn get_detail(obj: &Obj, tags: Tag) -> String {
     match obj.element(tags) {
             Ok(obj) => {
-                return obj.to_str().unwrap().to_string();
+                let res = obj.to_str().unwrap().to_string();
+                if res == "".to_string() {
+                    return  " - ".to_string();
+                } 
+                return res;
             }, 
             Err(_) => {
-                return "".to_string();
+                return " - ".to_string();
             }
         }
     }
@@ -300,7 +310,7 @@ fn find_edge_row(arr: I32Array) -> (i32, i32, i32) {
     (h_min, h_max, start_val)
 }
 
-fn rotate_matrix_cw(matrix: Vec<Vec<i32>>) -> Vec<Vec<u16>> {
+fn rotate_matrix_ccw(matrix: Vec<Vec<i32>>) -> Vec<Vec<u16>> {
     let rows = matrix.len();
     let cols = matrix[0].len();
 
@@ -312,8 +322,8 @@ fn rotate_matrix_cw(matrix: Vec<Vec<i32>>) -> Vec<Vec<u16>> {
         }
     }
 
-    // Reverse the order of rows
-    for row in transposed.iter_mut() {
+    // Reverse the order of columns
+    for row in &mut transposed {
         row.reverse();
     }
 
@@ -446,84 +456,175 @@ fn find_most_common(array: Vec<u16>) -> i32 {
     max_key.unwrap() as i32
 }
 
-fn linepairs_pos(arr: U16Array) -> (U16Array, Vec<(usize, usize)>, Vec<u128>) {
+fn linepairs_pos(mut arr: U16Array) -> (U16Array, Vec<(usize, usize)>, Vec<u128>, U16Array) {
     // find linpairs position 
     let h = arr.nrows() as i32;
     let w = arr.ncols() as i32;
     let hp = (0.11*(h as f32)) as i32;
     let wp = (0.10*(w as f32)) as i32;
     // crop 
-    let real_focus = arr.slice(s![
+    let mut real_focus = arr.slice(s![
         (h/2)-hp..(h/2)+hp, (wp as f32 * 1.5) as i32..w-((wp as f32 * 1.2) as i32)
     ]).to_owned();
     // change type to prevent add overflow
-    let focus = real_focus.mapv(|x| x as u128);
-    let one_line = focus.mean_axis(Axis(0)).unwrap().into_raw_vec(); // 0 is axis by col
-    // find diff vals each pixel
-    let mut diff_vals: Vec<i128> = vec![];
-    let total = one_line.len();
-    for idx in 0..total {
-        if idx + 1 < total {
-            let cur_val = one_line[idx] as i32;
-            let next_val = one_line[idx+1] as i32;
-            let diff = i32::abs(cur_val - next_val);
-            diff_vals.push(diff as i128);
+    let mut focus = real_focus.mapv(|x| x as u128);
+    let f_shape = focus.shape();
+    let f_h = f_shape[0];
+    // check is correct direction
+    let rotate_check = focus.slice(s![
+        0..f_h, 0..(wp as f32 / 3.0) as usize
+    ]).to_owned();
+    let rotate_check = rotate_check.mapv(|x| x as f64);
+    let std = rotate_check.std(1.0) as f32;
+    if std > (focus.max().unwrap() - focus.min().unwrap()) as f32 /30.0 {
+        arr = rotate_array(PI, arr);
+        real_focus = arr.slice(s![
+            (h/2)-hp..(h/2)+hp, (wp as f32 * 1.5) as i32..w-((wp as f32 * 1.2) as i32)
+        ]).to_owned();
+        focus = real_focus.mapv(|x| x as u128);
+    } 
+    let oneline_ori = focus.mean_axis(Axis(0)).unwrap().into_raw_vec(); // 0 is axis by col
+    let p_mean = find_mean(&oneline_ori) as u128;
+    let oneline = oneline_ori.iter()
+        .map(|&x| if x > p_mean { 1 } else { 0 })
+        .collect::<Vec<_>>();
+
+    // find position to seperate each linepair
+    let n = oneline.len();
+    let space_ts = (0.02*n as f32) as usize;
+    let mut positions = vec![];
+    let mut is_start = true;
+    let mut start_val = 0;
+    let mut none_count = 0; // for not lp
+    for (idx, val) in oneline.iter().enumerate() {
+        // forgot last one
+        if (idx+1 == n) && positions.len() != 17 {
+            positions.push((start_val, idx-space_ts));
         }
-    }
-    // make looks easier
-    let mut new_ts: Vec<u8> = vec![]; 
-    let sum_: i128 = diff_vals.iter().sum();
-    let threshold = (sum_ as f64 / total as f64) as i128;
-    let mut new_val;
-    for val in diff_vals {
-        if val < threshold {
-            new_val = 0;
+        // just first lp
+        if positions.len() == 0 {
+            if val == &1 {
+                positions.push((0, idx));
+            }
         } else {
-            new_val = 1;
-        }
-        new_ts.push(new_val)
-    }
-    // find real zero positions
-    let mut zero_positions: Vec<usize> = vec![0];
-    let mut is_start = false;
-    let mut is_start_zero = true;
-    let mut start_zero_pos = 0;
-    let total = new_ts.len();
-    let cut_count = (total as f32 * 0.015) as u16; // how many zero that count to real zero
-    let mut count = 0;
-    for (idx, value) in new_ts.iter().enumerate() {
-        if idx+1 == total {
-            zero_positions.push(start_zero_pos);
-            zero_positions.push(idx);
-        }
-        if *value == 1 {
-            if count >= cut_count {
-                zero_positions.push(start_zero_pos);
-                zero_positions.push(idx);
-            }
-            is_start = true;
-            is_start_zero = true;
-            count = 0;
-        }
-        if is_start {
-            if *value == 0 {
-                if is_start_zero {
-                    start_zero_pos = idx;
-                    is_start_zero = false;
+            if is_start {
+                if val == &0 {
+                    is_start = false;
+                    start_val = idx;
                 }
-                count += 1;
+            } else {
+                if val == &1 {
+                    none_count += 1;
+                    if none_count > space_ts {
+                        positions.push((start_val, idx-space_ts)); // back to correct position
+                        is_start = true;
+                        none_count = 0;
+                    }
+                } else {
+                    none_count = 0;
+                }
             }
-        } 
+        }
     }
-    // linepairs positions
-    let trim = (total as f32 * 0.004) as usize;
-    let linepairs: Vec<(usize, usize)> = zero_positions
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| idx % 2 == 0 && idx+1 < zero_positions.len())  // step by 2 and prevent over index
-        .map(|(idx, &pos)| (pos + trim, zero_positions[idx + 1] - trim))
-        .collect();
-    (real_focus, linepairs, one_line)
+
+    // trim for not edge too much
+    let mut linepairs = vec![];
+    let mut trim;
+    for idx in 0..=16 {
+        if idx < 9 {
+            trim = (0.0028*n as f32) as usize;
+        } else {
+            trim = (0.004*n as f32) as usize;
+        }
+        let s1 = positions[idx].0 + trim;
+        let s2 = positions[idx].1 - trim;
+        if s2 > s1 {
+            linepairs.push((s1, s2));
+        } else {
+            // to close
+            linepairs.push((s1+1, s1+2));
+        }
+    } 
+
+
+    // let one_line = focus.mean_axis(Axis(0)).unwrap().into_raw_vec(); // 0 is axis by col
+    // // find diff vals each pixel
+    // let mut diff_vals: Vec<i128> = vec![];
+    // let total = one_line.len();
+    // for idx in 0..total {
+    //     if idx + 1 < total {
+    //         let cur_val = one_line[idx] as i32;
+    //         let next_val = one_line[idx+1] as i32;
+    //         let diff = i32::abs(cur_val - next_val);
+    //         diff_vals.push(diff as i128);
+    //     }
+    // }
+    // // make looks easier
+    // let mut new_ts: Vec<u8> = vec![]; 
+    // let sum_: i128 = diff_vals.iter().sum();
+    // let threshold = (sum_ as f64 / total as f64) as i128;
+    // let mut new_val;
+    // for val in diff_vals {
+    //     if val < threshold {
+    //         new_val = 0;
+    //     } else {
+    //         new_val = 1;
+    //     }
+    //     new_ts.push(new_val)
+    // }
+    // // find real zero positions
+    // let mut zero_positions: Vec<usize> = vec![0];
+    // let mut is_start = false;
+    // let mut is_start_zero = true;
+    // let mut start_zero_pos = 0;
+    // let total = new_ts.len();
+    // let cut_count = (total as f32 * 0.015) as u16; // how many zero that count to real zero
+    // let mut count = 0;
+    // for (idx, value) in new_ts.iter().enumerate() {
+    //     if idx+1 == total {
+    //         zero_positions.push(start_zero_pos);
+    //         zero_positions.push(idx);
+    //     }
+    //     if *value == 1 {
+    //         if count >= cut_count {
+    //             zero_positions.push(start_zero_pos);
+    //             zero_positions.push(idx);
+    //         }
+    //         is_start = true;
+    //         is_start_zero = true;
+    //         count = 0;
+    //     }
+    //     if is_start {
+    //         if *value == 0 {
+    //             if is_start_zero {
+    //                 start_zero_pos = idx;
+    //                 is_start_zero = false;
+    //             }
+    //             count += 1;
+    //         }
+    //     } 
+    // }
+    // // linepairs positions
+    // let trim = (total as f32 * 0.004) as usize;
+    // let linepairs: Vec<(usize, usize)> = zero_positions
+    //     .iter()
+    //     .enumerate()
+    //     .filter(|(idx, _)| idx % 2 == 0 && idx+1 < zero_positions.len())  // step by 2 and prevent over index
+    //     .map(|(idx, &pos)| (pos + trim, zero_positions[idx + 1] - trim))
+    //     .collect();
+    (real_focus, linepairs, oneline_ori, arr)
+}
+
+fn find_mean(vector: &Vec<u128>) -> f32 {
+    let sum: u128 = vector.iter().sum();
+    let count = vector.len() as f32;
+
+    if count == 0.0 {
+        // Avoid division by zero
+        return 0.0;
+    }
+
+    sum as f32 / count
 }
 
 fn calculate_details(focus: U16Array, linepairs: Vec<(usize, usize)>) -> HashMap<String, Vec<f32>> {
@@ -531,21 +632,22 @@ fn calculate_details(focus: U16Array, linepairs: Vec<(usize, usize)>) -> HashMap
     let focus = focus.mapv(|x| x as i128);
     let min_val0 = *focus.slice(s![
         .., linepairs[0].0..linepairs[0].1
-    ]).min().unwrap() as f32;
+    ]).mean_axis(Axis(0)).unwrap().min().unwrap() as f32;
+
     let max_val0 = *focus.slice(s![
         .., linepairs[0].1..linepairs[1].0
-    ]).max().unwrap() as f32;
+    ]).mean_axis(Axis(0)).unwrap().max().unwrap() as f32;
+
     let contrast0 = (max_val0 - min_val0) as f32; // some bad precision error
 
     // result
     let mut res: HashMap<String, Vec<f32>> = HashMap::new();
-    res.insert("Linepair".to_string(), vec![0.0]);
     res.insert("Max".to_string(), vec![max_val0]);
     res.insert("Min".to_string(), vec![min_val0]);
     res.insert("Contrast".to_string(), vec![contrast0]);
     res.insert("Modulation".to_string(), vec![100.0]);
-    res.insert("start".to_string(), vec![0.0]);
-    res.insert("end".to_string(), vec![0.0]);
+    res.insert("start".to_string(), vec![linepairs[0].0 as f32]);
+    res.insert("end".to_string(), vec![linepairs[0].1 as f32]);
 
     // skip first because already find value
     for idx in 1..linepairs.len() {
@@ -573,7 +675,6 @@ fn calculate_details(focus: U16Array, linepairs: Vec<(usize, usize)>) -> HashMap
         let contrast = (max_vals - min_vals) as f32;
         let modulation = contrast*100.0/contrast0;
         
-        // res.get_mut("Linepair").unwrap().push(idx as f32);
         res.get_mut("Max").unwrap().push(max_vals as f32);
         res.get_mut("Min").unwrap().push(min_vals as f32);
         res.get_mut("Contrast").unwrap().push(contrast);

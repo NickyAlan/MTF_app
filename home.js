@@ -33,8 +33,17 @@ function openFilefn() {
 async function readFile() {
     const filePaths = await openFilefn();
     if (filePaths) {
-        filePathsImage = filePaths;
-        warning.innerHTML = "<i>ready to process</i>";
+        for (let path of filePaths) {
+            const lowerCasePath = path.toLowerCase();
+            const split_ = lowerCasePath.split("\\");
+            const file_type = split_[split_.length - 1].split(".")[1];
+            if (!file_type || file_type == "dcm" || file_type == "dicom") {
+                filePathsImage.push(path);
+            }
+        }
+        if (filePathsImage.length > 0) {
+            warning.innerHTML = "<i>ready to process</i>";
+        }
     } 
 };
 

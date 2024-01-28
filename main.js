@@ -75,6 +75,12 @@ async function process(content) {
 
             // 
             let info = res[2];
+            let pixel_size_sup;
+            if (info[7] != " - ") {
+                pixel_size_sup = `${info[7]}<sup>2</sup>`;
+            } else {
+                pixel_size_sup = "-";
+            }
 
             // plot0
             const mtf = res[1];
@@ -141,7 +147,7 @@ async function process(content) {
                                 <p>Detector Type : ${info[4]}</p>
                                 <p>Detector ID : ${info[5]}</p>
                                 <p>Patient ID : ${info[6]}</p>
-                                <p>Pixel Size : ${info[7]}<sup>2</sup></p>
+                                <p>Pixel Size : ${pixel_size_sup}</p>
                                 <p>Matrix Size : ${info[8]}</p>
                                 <p>Bit Depth : ${info[9]}</p>
                             </span>
@@ -186,7 +192,7 @@ async function process(content) {
             
             let data0 = [mtf_line];
             // max
-            for (let idx=1; idx<contrast.length; idx++) {
+            for (let idx=0; idx<contrast.length; idx++) {
                 data0.push(
                     {
                         x: [start[idx], end[idx]],
@@ -201,7 +207,7 @@ async function process(content) {
                 );
             };
             // min
-            for (let idx=1; idx<contrast.length; idx++) {
+            for (let idx=0; idx<contrast.length; idx++) {
                 data0.push(
                     {
                         x: [start[idx], end[idx]],
@@ -236,13 +242,13 @@ async function process(content) {
 
             // table
             let tableHtml = "<tr>";
-            for (name of column_name) {
+            for (let name of column_name) {
                 tableHtml += `<th>${name}</th>`
             }
 
             for (let idx=0; idx<contrast.length; idx++) {
                 tableHtml += "<tr>";
-                for (name of column_name) {
+                for (let name of column_name) {
                     if (name != "Modulation") {
                         if (name == "Linepair/mm") {
                             tableHtml += `<td>${linepairs[idx]}</td>`
