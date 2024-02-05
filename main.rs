@@ -2,11 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use dicom::object::{FileDicomObject, InMemDicomObject, Tag};
 use dicom::{object::open_file, pixeldata::PixelDecoder};
-use dicom::dictionary_std::tags::{self, TREATMENT_POSITION_GROUP_UID};
+use dicom::dictionary_std::tags::{self};
 use ndarray::{s, Array, ArrayBase, Axis, Dim, OwnedRepr};
 use dicom::pixeldata::image::GrayImage;
 use ndarray_stats::QuantileExt;
-use tauri::utils::config::parse::does_supported_file_name_exist;
 use tauri::Manager;
 use std::collections::HashMap;
 use std::fs;
@@ -23,6 +22,7 @@ type Obj = FileDicomObject<InMemDicomObject>;
 // constant
 const PI: f64 = 3.14159;
 const LIMITANGLE: f64 = 0.0393599;
+
 
 #[tauri::command]
 fn processing(file_path: String, save_path: String) -> (HashMap<String, Vec<f32>>, Vec<u128>, Vec<String>) {
@@ -58,23 +58,26 @@ fn processing(file_path: String, save_path: String) -> (HashMap<String, Vec<f32>
             let bit_depth = get_detail(&obj, tags::BITS_STORED);
             let details = vec![hospital, machine, address, acquisition_date, detector_type, detector_id, patient_id, pixel_size, matrix_size, bit_depth];
             // find MTF bar
-            let (arr, need_inv) = find_mtf_bar(arr);
-
-            // // just in this case
-            // let arr_rotated: ArrayBase<OwnedRepr<u16>, Dim<[usize; 2]>> = rotate_array(PI, arr);
-            let mut theta_r = find_theta(arr.clone());
-            if theta_r > LIMITANGLE {
-                // wrong side then rotate 180deg back
-                let arr: ArrayBase<OwnedRepr<u16>, Dim<[usize; 2]>> = rotate_array(PI, arr.clone());
-                theta_r = find_theta(arr.clone());
+            if let Ok((arr, need_inv)) = find_mtf_bar(arr) {
+                let mut theta_r = find_theta(arr.clone());
+                if theta_r > LIMITANGLE {
+                    // wrong side then rotate 180deg back
+                    let arr: ArrayBase<OwnedRepr<u16>, Dim<[usize; 2]>> = rotate_array(PI, arr.clone());
+                    theta_r = find_theta(arr.clone());
+                }
+                // rotate for straight line
+                let arr = rotate_array(theta_r, arr);
+                // focus one line to find linepairs position
+                if let Ok((focus, linepairs, oneline, arr)) = linepairs_pos(arr) {
+                    save_to_image(arr, save_path);
+                    let res = calculate_details(focus, linepairs);
+                    return (res, oneline, details);
+                } else {
+                    return (HashMap::new(), vec![], vec![]);
+                }
+            } else {
+                    return (HashMap::new(), vec![], vec![]);
             }
-            // rotate for straight line
-            let arr = rotate_array(theta_r, arr);
-            // focus one line to find linepairs position
-            let (focus, linepairs, oneline, arr) = linepairs_pos(arr);
-            save_to_image(arr, save_path);
-            let res = calculate_details(focus, linepairs);
-            return (res, oneline, details);
         }, 
         None => {
             return (HashMap::new(), vec![], vec![]);
@@ -93,7 +96,7 @@ fn open_dcm_file(file_path: String) -> Option<DcmObj> {
     }
 }
 
-fn find_mtf_bar(mut arr: U16Array) -> (U16Array, bool) {
+fn find_mtf_bar(mut arr: U16Array) -> Result<(U16Array, bool), ()> {
     let shape = arr.shape();
     let h = shape[0];
     let w = shape[1];
@@ -143,7 +146,7 @@ fn find_mtf_bar(mut arr: U16Array) -> (U16Array, bool) {
     let varr = parr.slice(s![
         vc[0]..vc[1], 0..w  
     ]).to_owned();
-    let (w_min, w_max) = find_edge_col(varr);
+    let (w_min, w_max) = find_edge_col(varr)?;
     // height finding
     let hc = [
         (0.1 * h as f32) as i32,
@@ -152,7 +155,7 @@ fn find_mtf_bar(mut arr: U16Array) -> (U16Array, bool) {
     let harr = parr.slice(s![
         0..h, hc[0]..hc[1]
     ]).to_owned();
-    let (h_min, h_max, start_val) = find_edge_row(harr);
+    let (h_min, h_max, start_val) = find_edge_row(harr)?;
 
     // processing crop, inv, rotate to horizontal
     let need_inv = start_val == 1;
@@ -190,8 +193,9 @@ fn find_mtf_bar(mut arr: U16Array) -> (U16Array, bool) {
         let arr_vec_rotated = rotate_matrix_ccw(arr_vec);
         arr = Array::from_shape_vec((ncols, nrows), arr_vec_rotated.concat()).unwrap();
     }
-    (arr, need_inv)
+    Ok((arr, need_inv))
 }
+
 
 fn get_detail(obj: &Obj, tags: Tag) -> String {
     match obj.element(tags) {
@@ -208,7 +212,7 @@ fn get_detail(obj: &Obj, tags: Tag) -> String {
         }
     }
 
-fn find_edge_col(arr: I32Array) -> (i32, i32) {
+fn find_edge_col(arr: I32Array) -> Result<(i32, i32), ()> {
     let shape = arr.shape();
     let nrows = shape[0];
     let ncols = shape[1];
@@ -242,24 +246,33 @@ fn find_edge_col(arr: I32Array) -> (i32, i32) {
             }
         }
     }
+
+    // not MTF
+    if (start_none_count as i32 +1-nont_ts as i32 ) < 0 {
+        return  Err(());
+    }
+
     let w_min = edges_pos[start_none_count+1-nont_ts] as i32;
     let w_max = edges_pos[edges_pos.len()-nont_ts-1] as i32;
     // check is correct
     if w_max-w_min < (0.15*ncols as f32) as i32 {
         let w_crop = w_max-w_min + 5;
-        let (w_min, w_max) = find_edge_col(
+        if let Ok((w_min, w_max)) = find_edge_col(
             arr.slice(s![
                 0..nrows, w_crop..ncols as i32
             ]).to_owned()
-        );
-        let w_min = w_min + w_crop;
-        let w_max = w_max + w_crop;
-        return  (w_min, w_max);
+        ) {
+            let w_min = w_min + w_crop;
+            let w_max = w_max + w_crop;
+            return  Ok((w_min, w_max));
+        } else {
+            return Err(());
+        }
     }
-    (w_min, w_max)
+    Ok((w_min, w_max))
 }
 
-fn find_edge_row(arr: I32Array) -> (i32, i32, i32) {
+fn find_edge_row(arr: I32Array) -> Result<(i32, i32, i32), ()> {
     let shape = arr.shape();
     let nrows = shape[0];
     let ncols = shape[1];
@@ -293,21 +306,29 @@ fn find_edge_row(arr: I32Array) -> (i32, i32, i32) {
             }
         }
     }
+
+    // not MTF
+    if (start_none_count as i32 +1-nont_ts as i32 ) < 0 {
+        return  Err(());
+    }
     let h_min = edges_pos[start_none_count+1-nont_ts] as i32;
     let h_max = edges_pos[edges_pos.len()-nont_ts-1] as i32;
     // check is correct
     if h_max-h_min < (0.15*nrows as f32) as i32 {
         let h_crop = h_max-h_min + 5;
-        let (h_min, h_max, start_val) = find_edge_row(
+        if let Ok((h_min, h_max, start_val)) = find_edge_row(
             arr.slice(s![
                 h_crop..nrows as i32, 0..ncols
             ]).to_owned()
-        );
-        let h_min = h_min + h_crop;
-        let h_max = h_max + h_crop;
-        return  (h_min, h_max, start_val);
+        ) {
+            let h_min = h_min + h_crop;
+            let h_max = h_max + h_crop;
+            return  Ok((h_min, h_max, start_val));
+        } else {
+            return Err(());
+        }
     }
-    (h_min, h_max, start_val)
+    Ok((h_min, h_max, start_val))
 }
 
 fn rotate_matrix_ccw(matrix: Vec<Vec<i32>>) -> Vec<Vec<u16>> {
@@ -456,7 +477,7 @@ fn find_most_common(array: Vec<u16>) -> i32 {
     max_key.unwrap() as i32
 }
 
-fn linepairs_pos(mut arr: U16Array) -> (U16Array, Vec<(usize, usize)>, Vec<u128>, U16Array) {
+fn linepairs_pos(mut arr: U16Array) -> Result<(U16Array, Vec<(usize, usize)>, Vec<u128>, U16Array), ()> {
     // find linpairs position 
     let h = arr.nrows() as i32;
     let w = arr.ncols() as i32;
@@ -530,6 +551,9 @@ fn linepairs_pos(mut arr: U16Array) -> (U16Array, Vec<(usize, usize)>, Vec<u128>
     // trim for not edge too much
     let mut linepairs = vec![];
     let mut trim;
+    if positions.len() < 16 {
+        return  Err(());
+    }
     for idx in 0..=16 {
         if idx < 9 {
             trim = (0.0028*n as f32) as usize;
@@ -545,74 +569,7 @@ fn linepairs_pos(mut arr: U16Array) -> (U16Array, Vec<(usize, usize)>, Vec<u128>
             linepairs.push((s1+1, s1+2));
         }
     } 
-
-
-    // let one_line = focus.mean_axis(Axis(0)).unwrap().into_raw_vec(); // 0 is axis by col
-    // // find diff vals each pixel
-    // let mut diff_vals: Vec<i128> = vec![];
-    // let total = one_line.len();
-    // for idx in 0..total {
-    //     if idx + 1 < total {
-    //         let cur_val = one_line[idx] as i32;
-    //         let next_val = one_line[idx+1] as i32;
-    //         let diff = i32::abs(cur_val - next_val);
-    //         diff_vals.push(diff as i128);
-    //     }
-    // }
-    // // make looks easier
-    // let mut new_ts: Vec<u8> = vec![]; 
-    // let sum_: i128 = diff_vals.iter().sum();
-    // let threshold = (sum_ as f64 / total as f64) as i128;
-    // let mut new_val;
-    // for val in diff_vals {
-    //     if val < threshold {
-    //         new_val = 0;
-    //     } else {
-    //         new_val = 1;
-    //     }
-    //     new_ts.push(new_val)
-    // }
-    // // find real zero positions
-    // let mut zero_positions: Vec<usize> = vec![0];
-    // let mut is_start = false;
-    // let mut is_start_zero = true;
-    // let mut start_zero_pos = 0;
-    // let total = new_ts.len();
-    // let cut_count = (total as f32 * 0.015) as u16; // how many zero that count to real zero
-    // let mut count = 0;
-    // for (idx, value) in new_ts.iter().enumerate() {
-    //     if idx+1 == total {
-    //         zero_positions.push(start_zero_pos);
-    //         zero_positions.push(idx);
-    //     }
-    //     if *value == 1 {
-    //         if count >= cut_count {
-    //             zero_positions.push(start_zero_pos);
-    //             zero_positions.push(idx);
-    //         }
-    //         is_start = true;
-    //         is_start_zero = true;
-    //         count = 0;
-    //     }
-    //     if is_start {
-    //         if *value == 0 {
-    //             if is_start_zero {
-    //                 start_zero_pos = idx;
-    //                 is_start_zero = false;
-    //             }
-    //             count += 1;
-    //         }
-    //     } 
-    // }
-    // // linepairs positions
-    // let trim = (total as f32 * 0.004) as usize;
-    // let linepairs: Vec<(usize, usize)> = zero_positions
-    //     .iter()
-    //     .enumerate()
-    //     .filter(|(idx, _)| idx % 2 == 0 && idx+1 < zero_positions.len())  // step by 2 and prevent over index
-    //     .map(|(idx, &pos)| (pos + trim, zero_positions[idx + 1] - trim))
-    //     .collect();
-    (real_focus, linepairs, oneline_ori, arr)
+    Ok((real_focus, linepairs, oneline_ori, arr))
 }
 
 fn find_mean(vector: &Vec<u128>) -> f32 {

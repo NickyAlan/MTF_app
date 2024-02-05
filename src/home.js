@@ -15,7 +15,7 @@ function openFilefn() {
     return new Promise((resolve, reject) => {
         open({
             multiple: true,
-            title: "Open DICOM file",
+            title: "Open DICOM files",
             filters: [{
                 name: 'DICOM',
                 extensions: ["*", "dcm", "dicom"]
@@ -33,8 +33,17 @@ function openFilefn() {
 async function readFile() {
     const filePaths = await openFilefn();
     if (filePaths) {
-        filePathsImage = filePaths;
-        warning.innerHTML = "<i>ready to process</i>";
+        for (let path of filePaths) {
+            const lowerCasePath = path.toLowerCase();
+            const split_ = lowerCasePath.split("\\");
+            const file_type = split_[split_.length - 1].split(".")[1];
+            if (!file_type || file_type == "dcm" || file_type == "dicom") {
+                filePathsImage.push(path);
+            }
+        }
+        if (filePathsImage.length > 0) {
+            warning.innerHTML = "<i>ready to process</i>";
+        }
     } 
 };
 
@@ -81,5 +90,20 @@ window.addEventListener("DOMContentLoaded", () => {
     processBtn.addEventListener("click", (event) => {
         event.preventDefault();
         processing();
+    });
+
+    // enter input binding
+    inputName.addEventListener("keydown", (event) => {
+        if (event.keyCode === 13) {
+            event.preventDefault();
+            processing();
+        };
+    });
+
+    inputRoom.addEventListener("keydown", (event) => {
+        if (event.keyCode === 13) {
+            event.preventDefault();
+            processing();
+        };
     });
 })
