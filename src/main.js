@@ -17,6 +17,12 @@ let content;
 let loader;
 let mainElm;
 let compareCsv = "";
+// change scale from window 1.25 to 1.5
+let zoomLevel;
+let p0w = "520px";
+let p0h = "330px";
+let p1w = "500px";
+let p1h = "320px";
 let elements = {"fileNames": [], "modulations": []};
 const linepairs = [
     0.0, 1.0, 1.11, 1.23, 1.37, 1.52, 1.69, 1.88, 2.09,
@@ -40,7 +46,7 @@ window.saveCsv = async function (savePath, contentCsv) {
         name: 'csv',
         extensions: ['csv']
     }],
-    defaultPath: savePath
+        defaultPath: savePath
     });
     await invoke("write_csv", {savePath: filePath, content: contentCsv});
 }
@@ -124,6 +130,14 @@ async function process(content) {
                 compareCsv += contentCsv;
                 compareCsv += "/n";
 
+                // change plot scale
+                if (zoomLevel == 1.25) {
+                    p0w = "610px";
+                    p0h = "350px";
+                    p1w = "600px";
+                    p1h = "350px";
+                }
+
                 mainContainer.innerHTML += `
                     <div class="container" id="container${idx}" style="display: ${displayTab};">
                         <div class="left">
@@ -136,7 +150,7 @@ async function process(content) {
                         </div>
                         <div class="mid">
                             <img src="" id="mtfImage${idx}" style="width: 90%;">
-                            <div id="mtf-plot0${idx}" style="width: 520px; height: 330px"></div>
+                            <div class="mtf-plot0" id="mtf-plot0${idx}" style="width: ${p0w}; height: ${p0h}"></div>
                         </div>
                         <div class="right">
                             <div class="top-right">
@@ -155,10 +169,18 @@ async function process(content) {
                                 </span>
                                 <button id="export" onclick="saveCsv('${savePath}', '${contentCsv}')">Export</button>
                             </div>  
-                            <div id="mtf-plot1${idx}" style="width: 500px; height: 320px"></div>
+                            <div class="mtf-plot1" id="mtf-plot1${idx}" style="width: ${p1w}; height: ${p1h}"></div>
                         </div>
                     </div>
                 `
+
+                if (zoomLevel == 1.25) {
+                    let tableContainer = document.getElementsByTagName("table");
+                    for (let i=0; i<tableContainer.length; i++) {
+                        tableContainer[i].style.fontSize = "14px";
+                    }
+                    changeScale()
+                }
 
                 mtfImage = document.querySelector(`#mtfImage${idx}`);
                 tableDetails = document.querySelector(`#tableDetails${idx}`);
@@ -286,7 +308,6 @@ async function process(content) {
                     }
                     tableHtml += "</tr>";
                 }
-
                 
                 tableHtml += "</tr>"
                 tableDetails.innerHTML = tableHtml;
@@ -322,7 +343,14 @@ async function process(content) {
                     <button id="export" onclick="saveCsv('MTF_Compare', '${compareCsv}')">Export</button>
                 </div>
             </div>
-        `
+        `       
+            if (zoomLevel == 1.25) {
+                let comparePlot = document.querySelector("#mtf-plot1compare");
+                comparePlot.style.width = "900px";
+                comparePlot.style.height = "500px";
+                changeScale()
+            }
+            
             // bind:plot1
             let data = [];
             for (let idx=0; idx<elements["modulations"].length; idx++) {
@@ -355,6 +383,20 @@ async function process(content) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function changeScale() {
+     // Apply the desired font size to all <p> and <h3> elements
+    let desiredFontSize = '16px';
+    let paragraphs = document.getElementsByTagName('p');
+    for (let i = 0; i < paragraphs.length; i++) {
+        paragraphs[i].style.fontSize = desiredFontSize;
+    }
+
+    let h3Elements = document.getElementsByTagName('h3');
+    for (let i = 0; i < h3Elements.length; i++) {
+        h3Elements[i].style.fontSize = desiredFontSize;
+    }
 }
 
 async function checkContent() {
@@ -392,6 +434,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     tabsBar = document.querySelector("#tabsBar");
     loader = document.querySelector(".load-container");
     mainElm = document.querySelector(".main-element");
+    zoomLevel = window.devicePixelRatio;
     checkContent();
 
     newFile.addEventListener("click", async () => {
