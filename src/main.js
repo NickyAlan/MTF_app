@@ -31,8 +31,8 @@ let legitImagePath = [];
 let userName;
 let room;
 const linepairs = [
-    0.0, 1.0, 1.11, 1.23, 1.37, 1.52, 1.69, 1.88, 2.09,
-    2.32, 2.58, 2.87, 3.19, 3.54, 3.93, 4.37, 4.86
+    1.0, 1.11, 1.23, 1.37, 1.52, 1.69, 1.88, 2.09,
+    2.32, 2.58, 2.87, 3.19, 3.93, 4.37, 4.86
 ];
 const column_name = ["Linepair/mm", "Max", "Min", "Contrast", "Modulation"];
 
